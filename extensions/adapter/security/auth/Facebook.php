@@ -62,6 +62,7 @@ class Facebook extends \lithium\core\Object {
 	 *        - `users`: the users to permit. key => value pair of username => password
 	 */
 	public function __construct(array $config = array()) {
+
 		$defaults = array(
 			'realm' => basename(LITHIUM_APP_PATH),
 			'redirect_uri' => 'http://sandbox-lithium.local/login', //$this->_getCurrentUrl(),
@@ -72,9 +73,17 @@ class Facebook extends \lithium\core\Object {
 
 		parent::__construct($config + $defaults);
 
+	}
+
+	/**
+	 * Setup default initialization.
+	 */
+	public function _init() {
+
 		// use bundled certificate
 		if(!$this->_config['certificate']) $this->_config['certificate'] = dirname(__FILE__) . DS . '..' . DS . '..' . DS . '..' . DS . '..' . DS . 'libraries' . DS . 'php-sdk' . DS . 'src' . DS . 'fb_ca_chain_bundle.crt';
 		self::$curlOptions[CURLOPT_CAINFO] = $this->_config['certificate'];
+
 	}
 
 	/**
@@ -131,7 +140,6 @@ class Facebook extends \lithium\core\Object {
 	 * @return array Returns the value of `$data`.
 	 */
 	public function set($data, array $options = array()) {
-		debug($data);
 		return $data;
 	}
 
@@ -143,29 +151,6 @@ class Facebook extends \lithium\core\Object {
 	 */
 	public function clear(array $options = array()) {
 		$this->_writeSession();
-	}
-
-	/**
-	 * Process an oAuth request
-	 *
-	 * @param $url String url to fetch
-	 * @param $options Array optional query parameters
-	 * @return Mixed the Response received
-	 */
-	protected function _request($url, $options = array()) {
-
-		$response = self::curl_get($url, $options);
-		if(!empty($response[0]) && $response[0] == '{') $result = json_decode($response, true);
-		$response = !empty($result) ? $result : $response;
-
-		// results are returned, errors are thrown
-		if (is_array($response) && !empty($response['error'])) {
-			trigger_error($response['error']['type'] . ': ' . $response['error']['message'] . ' ~ ' . $url, E_USER_WARNING);
-			// trigger Auth clear
-			Auth::clear($this->_config['session']['key']);
-		}
-
-		return $response;
 	}
 
 	/**
@@ -208,7 +193,6 @@ class Facebook extends \lithium\core\Object {
 		// handle expiration
 		$expiration = $this->_readSession('access_token_time') + $this->_readSession('access_token_expires');
 		if($expiration && time() >= $expiration) {
-			$this->clear();
 			return false;
 		}
 
@@ -261,7 +245,7 @@ class Facebook extends \lithium\core\Object {
 	 */
 	protected function _getUrl($name, $path = null, $params = array()) {
 		if ($path && $path[0] === '/') $path = substr($path, 1);
-		return self::$paths[$name]['domain'] . $path . ($params ? '?' . http_build_query($params) : null);
+		return static::$paths[$name]['domain'] . $path . ($params ? '?' . http_build_query($params) : null);
 	}
 
 	/**
@@ -315,6 +299,28 @@ class Facebook extends \lithium\core\Object {
 	 */
 	protected function _writeHeader($string) {
 		header($string, true);
+	}
+
+	/**
+	 * Process an oAuth request
+	 *
+	 * @param $url String url to fetch
+	 * @param $options Array optional query parameters
+	 * @return Mixed the Response received
+	 */
+	protected function _request($url, $options = array()) {
+
+		$response = self::curl_get($url, $options);
+		if(!empty($response[0]) && $response[0] == '{') $result = json_decode($response, true);
+		$response = !empty($result) ? $result : $response;
+
+		// results are returned, errors are thrown
+		if (is_array($response) && !empty($response['error'])) {
+			trigger_error($response['error']['type'] . ': ' . $response['error']['message'] . ' ~ ' . $url, E_USER_WARNING);
+			return false;
+		}
+
+		return $response;
 	}
 
 	/**

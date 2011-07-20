@@ -2,16 +2,13 @@
 
 namespace facebook\models;
 
-use facebook\extensions\adapter\data\source\http\Facebook;
 use lithium\data\Connections;
 
 class Users extends \lithium\data\Model {
 
-	public $_meta = array();
-
-	public function __construct(array $config = array()) {
-		$this->_meta['connection'] = GooglePlaces::$configName;
-	}
+	public $_meta = array(
+		'connection' => "facebook"
+	);
 
 	/*public static function config(array $config = array(), $a = array()) {
 		debug($config);

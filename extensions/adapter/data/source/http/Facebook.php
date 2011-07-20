@@ -4,37 +4,11 @@ namespace facebook\extensions\adapter\data\source\http;
 
 use lithium\util\String;
 use lithium\util\Inflector;
+use lithium\security\Auth;
 use lithium\storage\Cache;
+use lithium\storage\Session;
 
 class Facebook extends \lithium\data\source\Http {
-
-	/**
-	 * API Paths
-	 */
-	public static $paths = array(
-		'places' => array(
-			'path' => '/maps/api/place/search/{:output}?location={:location}&radius={:radius}&types={:types}&language={:language}&name={:name}&sensor={:sensor}&key={:key}',
-			'defaults' => array(
-				'output' => "json",
-				'location' => null,
-				'radius' => null,
-				'types' => null,
-				'language' => null,
-				'name' => null,
-				'sensor' => 'false',
-				'key' => null
-			)
-		),
-		'restaurants' => 'eatery'
-	);
-
-	/**
-	 * Default configs
-	 */
-	static $_config = array(
-		'cache' => 'facebook',
-		'connection' => 'facebook'
-	);
 
 	/**
 	 * Define what item() uses to create data objects
@@ -43,6 +17,31 @@ class Facebook extends \lithium\data\source\Http {
 		'service' => 'lithium\net\http\Service',
 		'entity'  => 'lithium\data\entity\Document',
 		'set'     => 'lithium\data\collection\DocumentSet',
+	);
+
+	/**
+	 * Facebook API Domains
+	 */
+	public static $domains = array(
+		'graph' => 'https://graph.facebook.com/',
+		'picture' => 'http://graph.facebook.com/',
+		'www' => 'https://www.facebook.com/'
+	);
+
+	/**
+	 * Facebook API Paths
+	 */
+	public static $paths = array(
+		'users' => array(
+			'domain' => 'graph',
+			'request' => 'me'
+		),
+		'picture' => array(
+			'domain' => 'http://graph.facebook.com/',
+		),
+		'www' => array(
+			'domain' => 'https://www.facebook.com/'
+		)
 	);
 
 	/**
@@ -59,33 +58,46 @@ class Facebook extends \lithium\data\source\Http {
 	public function __construct(array $config = array()) {
 
 		$defaults = array(
-			'scheme'   => 'https',
-			'host'     => 'maps.googleapis.com',
-			'port'     => 443,
-			'cache'    => true,
-			'curl'     => true,
-			//'basePath' => '/api/v2/json',
+			'cache' => 'facebook',
+			'connection' => 'facebook',
+			'certificate' => null
 		);
-		$config += $defaults;
 
-		$cachePath = LITHIUM_CACHE_PATH . DS . self::$cacheConfig;
+		parent::__construct($config += $defaults);
+	}
+
+	public function _init() {
+		parent::_init();
+
+		//$authConfig = Auth::config($this->_config['auth']);
+		//$authConfig = $authConfig['object']->_config;
+
+		// use bundled certificate
+		if(!$this->_config['certificate']) $this->_config['certificate'] = dirname(__FILE__) . DS . '..' . DS . '..' . DS . '..' . DS . '..' . DS . '..' . DS . 'libraries' . DS . 'php-sdk' . DS . 'src' . DS . 'fb_ca_chain_bundle.crt';
+		self::$curlOptions[CURLOPT_CAINFO] = $this->_config['certificate'];
+
+		$cachePath = LITHIUM_CACHE_PATH . DS . $this->_config['cache'];
 		if(!is_dir($cachePath)) mkdir($cachePath, 0770, true);
-		Cache::config(array(self::$cacheConfig => array(
+		Cache::config(array($this->_config['cache'] => array(
 			'adapter' => 'File',
 			'path' => $cachePath,
 			'expiry' => '+1 year'
 		)));
-
-		parent::__construct($config);
 	}
 
-	public function read($query, array $options = array()) { debug(compact('options')); debug($this); debug($this->_config); exit;
+	public function read($query, array $options = array()) { //debug(compact('options')); debug($this); debug($this->_config); exit;
 
 		// asking the Query object to export the parameters that we care about for this API call
 		$params = $query->export($this, array('source', 'conditions'));
 
 		// 'source' is the API resource accessed
 		$source = !empty($options['source']) ? $options['source'] : $params['source'];
+
+		debug(compact('options', 'params', 'source', 'url'));
+
+		debug($this->graph($options['conditions']['id']));
+
+		 exit;
 		// make sure the resource we're attempting to read from is one we know about in our map
 		if(!isset(self::$paths[$source])) return null;
 		// support source redirections
@@ -113,32 +125,104 @@ class Facebook extends \lithium\data\source\Http {
 		return $this->item($query->model(), $data[$source], array('class' => 'set'));
 	}
 
-	/*public function calculation($type, $query) { //debug(compact('options')); debug($this->_config);
-
-		debug(compact('query', 'options')); exit;
-	}*/
-
-
 	/**
-	* request
-	*/
-	protected function request($path) {
+	 * graph() ~ Returns facebook graph information
+	 *
+	 * @param string $request
+	 * @param array $options to pass to the api (limit, offset, until, since)
+	 * @return array returned json from facebook
+	 * @access public
+	 */
+	function graph($request = 'me', $options = array()) {
 
-		// Cache external requests
-		$cacheKey = Inflector::slug($path);
-		if(!$this->_config['cache'] || ($ressource = Cache::read(self::$cacheConfig, $cacheKey)) === false) {
-			if(!$this->_config['curl']) $ressource = $this->connection->get($this->_config['host'] . $path);
-			else $ressource = self::curl_get($this->_config['scheme'] . '://' . $this->_config['host'] . ':' . $this->_config['port'] . $path);
-			if($ressource) Cache::write(self::$cacheConfig, $cacheKey, $ressource);
+		// check if we need a picture ~ we won't check certs for that
+		if(preg_match('/\/picture$/', $request)) {
+			self::$CURL_OPTS = array_merge_keys(self::$CURL_OPTS, array(
+				CURLOPT_BINARYTRANSFER => true,
+				CURLOPT_SSL_VERIFYPEER => false
+			));
 		}
 
-		return $ressource;
+		$defaults = array(
+			'access_token' => $this->_readSession('access_token'),
+			'metadata' => false,
+			//'limit' => null,
+			//'offset' => null,
+			//'until' => null,
+			//'since' => null,
+		);
+		$url = $this->getUrl('graph', $request, array_merge($defaults, $options));
+		$response = static::request($url);
+		debug($response); exit;
+
+		return $response;
+
 	}
 
 	/**
-	* curl_get
-	*/
-	public static function curl_get($url, array $options = array()) {
+	 * Helper method for reading in the Session
+	 *
+	 * @param string $key
+	 * @return void
+	 */
+	protected function _readSession($key = null) {
+		return Session::read('security.' . $this->_config['auth'] . ($key ? '.' . $key : null));
+	}
+
+	/**
+	 * Helper method for writing in the Session
+	 *
+	 * @param string $key
+	 * @param mixed $value
+	 * @return void
+	 */
+	protected function _writeSession($key = null, $value = null) {
+		return Session::write('security.' . $this->_config['auth'] . ($key ? '.' . $key : null), $value);
+	}
+
+	/**
+	 * Build the URL for given domain alias, path and parameters.
+	 *
+	 * @param $name String the name of the domain
+	 * @param $path String optional path (without a leading slash)
+	 * @param $params Array optional query parameters
+	 * @return String the URL for the given parameters
+	 */
+	public static function getUrl($name, $path = null, $params = array()) {
+		if ($path && $path[0] === '/') $path = substr($path, 1);
+		return static::$domains[$name] . $path . ($params ? '?' . http_build_query($params) : null);
+	}
+
+	/**
+	 * Process an oAuth request
+	 *
+	 * @param $url String url to fetch
+	 * @param $options Array optional query parameters
+	 * @return Mixed the Response received
+	 */
+	public static function request($url, $options = array()) {
+
+		$response = self::curlGet($url, $options);
+		if(!empty($response[0]) && $response[0] == '{') $result = json_decode($response, true);
+		$response = !empty($result) ? $result : $response;
+
+		// results are returned, errors are thrown
+		if (is_array($response) && !empty($response['error'])) {
+			trigger_error($response['error']['type'] . ': ' . $response['error']['message'] . ' ~ ' . $url, E_USER_WARNING);
+			return false;
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Process a request with curl
+	 *
+	 * @param $url String url to fetch
+	 * @param $options Array optional query parameters
+	 * @return Mixed the Response received
+	 */
+	public static function curlGet($url, array $options = array()) {
 
 		$options += self::$curlOptions;
 
@@ -169,14 +253,4 @@ class Facebook extends \lithium\data\source\Http {
 		return $response;
 	}
 
-}
-
-/**
- * Basic defines
- */
-if (!defined('DS')) {
-	define('DS', DIRECTORY_SEPARATOR);
-}
-if(!defined('LITHIUM_CACHE_PATH')) {
-	define('LITHIUM_CACHE_PATH', LITHIUM_APP_PATH . DS . 'resources' . DS . 'tmp' . DS . 'cache');
 }
