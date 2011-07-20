@@ -21,5 +21,4 @@ To suggest a feature, report a bug, or general discussion:
 
 All contributors are listed here:
 
-
 > http://mgcrea.github.com/li3-facebook/contributors
