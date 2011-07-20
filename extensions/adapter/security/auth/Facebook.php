@@ -8,10 +8,9 @@
 
 namespace facebook\extensions\adapter\security\auth;
 
-use lithium\net\http\Router;
-use lithium\storage\Session;
+use lithium\security\Auth;
 use lithium\security\validation\RequestToken;
-use lithium\action\Request;
+use lithium\storage\Session;
 
 /**
  * The `Facebook` adapter provides basic and digest authentication based on the Facebook API.
@@ -55,11 +54,6 @@ class Facebook extends \lithium\core\Object {
 	);
 
 	/**
-	 * Request will be stored there for convenience
-	 */
-	public static $request;
-
-	/**
 	 * Setup default configuration options.
 	 *
 	 * @param array $config
@@ -70,7 +64,7 @@ class Facebook extends \lithium\core\Object {
 	public function __construct(array $config = array()) {
 		$defaults = array(
 			'realm' => basename(LITHIUM_APP_PATH),
-			'redirect_uri' => $this->_getCurrentUrl(),
+			'redirect_uri' => 'http://sandbox-lithium.local/login', //$this->_getCurrentUrl(),
 			'certificate' => null,
 			'scope' => array(),
 			'display' => null,
@@ -97,26 +91,26 @@ class Facebook extends \lithium\core\Object {
 	 */
 	public function check($request, array $options = array()) {
 
+		// check for any session code post from facebook
+		if(!empty($request->query['code'])) { debug($request->query);
+			if (!RequestToken::check($request->query['state'], array('sessionKey' => 'security.facebook.state'))) {
+				trigger_error("The state does not match. You may be a victim of CSRF.");
+				// trigger Auth clear
+				Auth::clear($this->_config['session']['key']);
+				exit;
+			}
+			$this->_writeSession('code', $request->query['code']);
+		}
+
 		// check Token if Session code exists
 		if($this->_readSession('code')) {
 			if(!$this->_checkToken() && !$this->_getToken()) {
 				// trigger Auth clear
-				parent::clear($this->_config['session']['key']);
+				Auth::clear($this->_config['session']['key']);
 			} else {
 				// everything is fine, return session
 				return $this->_readSession();
 			}
-		}
-
-		// check for any session code post from facebook
-		if(!empty(self::$request->query['code'])) {
-			if (!RequestToken::check(self::$request->query['state'], array('sessionKey' => 'security.facebook.state'))) {
-				trigger_error("The state does not match. You may be a victim of CSRF.");
-				exit;
-			}
-			$this->_writeSession('code', self::$request->query['code']);
-			debug($this->_readSession());
-			exit;
 		}
 
 		// generate random state to protect from crsf
@@ -148,7 +142,7 @@ class Facebook extends \lithium\core\Object {
 	 * @return void
 	 */
 	public function clear(array $options = array()) {
-		debug('clearing');
+		$this->_writeSession();
 	}
 
 	/**
@@ -168,7 +162,7 @@ class Facebook extends \lithium\core\Object {
 		if (is_array($response) && !empty($response['error'])) {
 			trigger_error($response['error']['type'] . ': ' . $response['error']['message'] . ' ~ ' . $url, E_USER_WARNING);
 			// trigger Auth clear
-			parent::clear($this->_config['session']['key']);
+			Auth::clear($this->_config['session']['key']);
 		}
 
 		return $response;
@@ -214,7 +208,7 @@ class Facebook extends \lithium\core\Object {
 		// handle expiration
 		$expiration = $this->_readSession('access_token_time') + $this->_readSession('access_token_expires');
 		if($expiration && time() >= $expiration) {
-			$this->_writeSession();
+			$this->clear();
 			return false;
 		}
 

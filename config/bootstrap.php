@@ -1,5 +1,5 @@
 <?php
-use lithium\action\Dispatcher;
+/*use lithium\action\Dispatcher;
 use facebook\extensions\adapter\security\auth\Facebook;
 
 Dispatcher::applyFilter('_callable', function($self, $params, $chain) {
@@ -11,4 +11,4 @@ Dispatcher::applyFilter('_callable', function($self, $params, $chain) {
 	$response = $chain->next($self, $params, $chain);
 
 	return $response;
-});
+});*/

@@ -7,9 +7,46 @@
 	   \/____/ \/_/\/___/            \/_/ \/__/\/_/\/____/\/____/ \/___/  \/___/  \/___/  \/_/\/_/
 																								  
 																								  
-Facebook API library for the lithium framework
+Facebook API library for the [lithium framework](http://github.com/UnionOfRAD/lithium)
 
-> http://github.com/UnionOfRAD/lithium
+> Main file currently is an Auth adapter : adapter/security/auth/Facebook.php
+
+## quick setup
+
+> In your bootstrap/auth.php
+
+	<?php
+
+	use lithium\storage\Session;
+	use lithium\security\Auth;
+	use facebook\extensions\adapter\security\auth\Facebook;
+
+	Session::config(array(
+		'default' => array('adapter' => 'Php')
+	));
+
+	Auth::config(array(
+		'facebook' => array(
+			'adapter' => 'Facebook',
+			'app_id'      => 'FB_APP_ID_HERE',
+			'api_key'     => 'FB_API_KEY_HERE',
+			'app_secret'  => 'FB_APP_SECRET_HERE'
+		)
+	));
+
+	?>
+
+> In your SessionsController (or another one).
+
+	public function add() {
+
+		if (Auth::check('facebook', $this->request)) {
+			return $this->redirect('/');
+		}
+
+		// Handle failed authentication attempts
+
+	}
 
 For Docs, License, Tests, and pre-packed downloads, see:
 
