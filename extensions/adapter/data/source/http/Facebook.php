@@ -29,7 +29,11 @@ class Facebook extends \lithium\data\source\Http {
 	 * Facebook API Domains
 	 */
 	public static $domains = array(
-		'graph' => 'https://graph.facebook.com/',
+		'graph' => array(
+			'scheme' => 'https',
+			'host' => 'graph.facebook.com',
+			'port' => 443
+		),
 		'picture' => 'http://graph.facebook.com/',
 		'www' => 'https://www.facebook.com/'
 	);
@@ -40,13 +44,7 @@ class Facebook extends \lithium\data\source\Http {
 	public static $paths = array(
 		'users' => array(
 			'domain' => 'graph',
-			'request' => 'me'
-		),
-		'picture' => array(
-			'domain' => 'http://graph.facebook.com/',
-		),
-		'www' => array(
-			'domain' => 'https://www.facebook.com/'
+			'defaults' => array('id' => 'me/friends')
 		)
 	);
 
@@ -64,6 +62,9 @@ class Facebook extends \lithium\data\source\Http {
 	public function __construct(array $config = array()) {
 
 		$defaults = array(
+			'scheme' => null,
+			'host' => 'graph.facebook.com',
+			'port' => null,
 			'cache' => 'facebook',
 			'connection' => 'facebook',
 			'certificate' => null
@@ -95,40 +96,44 @@ class Facebook extends \lithium\data\source\Http {
 
 		// asking the Query object to export the parameters that we care about for this API call
 		$params = $query->export($this, array('source', 'conditions'));
-
 		// 'source' is the API resource accessed
 		$source = !empty($options['source']) ? $options['source'] : $params['source'];
 
-		debug(compact('options', 'params', 'source', 'url'));
-
-		debug($this->graph($options['conditions']['id']));
-
-		 exit;
 		// make sure the resource we're attempting to read from is one we know about in our map
 		if(!isset(self::$paths[$source])) return null;
 		// support source redirections
 		if(is_string(self::$paths[$source])) $source = self::$paths[$source];
+		// override default configuration based on domain
+		$this->connection->_config = self::$domains[self::$paths[$source]['domain']] + $this->connection->_config;
+		$this->_config = self::$domains[self::$paths[$source]['domain']] + $this->_config;
 
-		// apply defaults
-		$conditions = (array) $params['conditions'] + self::$paths[$source]['defaults'];
-		// merge required params
-		$required = array('key' => $this->_config['key']);
-		$conditions = array_merge($conditions, $required);
-		// craft the URL to the API using the conditions from the Query
-		$path = String::insert(self::$paths[$source]['path'], array_map('urlencode', (array) $conditions));
-		//$path .= '?' . http_build_query(array_merge($conditions, $required));
+		// apply static defaults to conditions
+		if(!empty(self::$paths[$source]['defaults'])) $conditions = (array)$params['conditions'] + self::$paths[$source]['defaults'];
 
-		// request ressource
-		$ressource = json_decode($this->request($path), true);
+		$conditions += array(
+			'access_token' => $this->_readSession('access_token'),
+			'metadata' => false,
+			'limit' => $options['limit'],
+			'offset' => $options['offset'],
+			//'until' => null,
+			//'since' => null,
+		);
 
+		// use the id as the main key ?
+		$request = $conditions['id'];
+		unset($conditions['id']);
 
-		if(!$ressource) {
-			trigger_error('API Request failed.', E_USER_WARNING);
-			return null;
-		}
+		debug(compact('request', 'conditions', 'source', 'url'));
+
+		// craft the URL to the API using the conditions from the query
+		$url = static::craftPath($request, $conditions);
+		// get request response
+		$response = $this->_request($url);
 
 		$data[$source] = $ressource['results'];
 		return $this->item($query->model(), $data[$source], array('class' => 'set'));
+
+
 	}
 
 	/**
@@ -157,7 +162,7 @@ class Facebook extends \lithium\data\source\Http {
 			//'until' => null,
 			//'since' => null,
 		);
-		$url = $this->getUrl('graph', $request, array_merge($defaults, $options));
+		$url = $this->getUrl('graph', $request, array_merge($defaults, $options)); debug($url);
 		$response = static::request($url);
 		debug($response); exit;
 
@@ -187,16 +192,16 @@ class Facebook extends \lithium\data\source\Http {
 	}
 
 	/**
-	 * Build the URL for given domain alias, path and parameters.
+	 * Craft the URL for given domain alias, path and parameters.
 	 *
 	 * @param $name String the name of the domain
 	 * @param $path String optional path (without a leading slash)
 	 * @param $params Array optional query parameters
 	 * @return String the URL for the given parameters
 	 */
-	public static function getUrl($name, $path = null, $params = array()) {
+	public static function craftPath($path = null, $params = array()) {
 		if ($path && $path[0] === '/') $path = substr($path, 1);
-		return static::$domains[$name] . $path . ($params ? '?' . http_build_query($params) : null);
+		return '/' . $path . ($params ? '?' . http_build_query($params) : null);
 	}
 
 	/**
@@ -206,9 +211,11 @@ class Facebook extends \lithium\data\source\Http {
 	 * @param $options Array optional query parameters
 	 * @return Mixed the Response received
 	 */
-	public static function request($url, $options = array()) {
+	protected function _request($url, $options = array()) {
 
-		$response = self::curlGet($url, $options);
+		//$response = self::curlGet($url, $options);
+		$response = $this->connection->get($url);
+
 		if(!empty($response[0]) && $response[0] == '{') $result = json_decode($response, true);
 		$response = !empty($result) ? $result : $response;
 
