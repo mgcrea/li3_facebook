@@ -10,7 +10,7 @@
 																								  
 Facebook API library for the [lithium framework](http://github.com/UnionOfRAD/lithium)
 
-> Main file currently is an Auth adapter : adapter/security/auth/Facebook.php
+> Main file currently is an Auth adapter : [extensions/adapter/security/auth/Facebook.php](https://github.com/mgcrea/li3-facebook/blob/master/extensions/adapter/security/auth/Facebook.php)
 
 ## quick setup
 
