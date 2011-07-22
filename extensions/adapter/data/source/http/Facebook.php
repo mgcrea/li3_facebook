@@ -57,17 +57,20 @@ class Facebook extends \lithium\data\source\Http {
 		CURLOPT_FOLLOWLOCATION => true,
 		CURLOPT_TIMEOUT        => 60,
 		CURLOPT_USERAGENT      => 'curl-php',
+		CURLOPT_SSL_VERIFYHOST => true
 	);
 
 	public function __construct(array $config = array()) {
 
+		// defaults will be overriden based on model
 		$defaults = array(
 			'scheme' => null,
-			'host' => 'graph.facebook.com',
+			'host' => null,
 			'port' => null,
 			'cache' => 'facebook',
 			'connection' => 'facebook',
-			'certificate' => null
+			'certificate' => null,
+			'socket' => 'Curl'
 		);
 
 		parent::__construct($config += $defaults);
@@ -107,6 +110,13 @@ class Facebook extends \lithium\data\source\Http {
 		$this->connection->_config = self::$domains[self::$paths[$source]['domain']] + $this->connection->_config;
 		$this->_config = self::$domains[self::$paths[$source]['domain']] + $this->_config;
 
+		// initialize the socket
+		if($this->_config['socket'] == 'Curl') {
+			//$defaults = array('return' => 'body', 'classes' => $this->connection->_classes);
+			$curl = $this->connection->connection();
+			$curl->set(self::$curlOptions);
+		}
+
 		// apply static defaults to conditions
 		if(!empty(self::$paths[$source]['defaults'])) $conditions = (array)$params['conditions'] + self::$paths[$source]['defaults'];
 
@@ -123,50 +133,20 @@ class Facebook extends \lithium\data\source\Http {
 		$request = $conditions['id'];
 		unset($conditions['id']);
 
+		//$this->connection->_config['options'] = array('a' => 1);
+
 		debug(compact('request', 'conditions', 'source', 'url'));
 
 		// craft the URL to the API using the conditions from the query
 		$url = static::craftPath($request, $conditions);
 		// get request response
+		//debug);
 		$response = $this->_request($url);
+		debug($response); exit;
 
 		$data[$source] = $ressource['results'];
 		return $this->item($query->model(), $data[$source], array('class' => 'set'));
 
-
-	}
-
-	/**
-	 * graph() ~ Returns facebook graph information
-	 *
-	 * @param string $request
-	 * @param array $options to pass to the api (limit, offset, until, since)
-	 * @return array returned json from facebook
-	 * @access public
-	 */
-	function graph($request = 'me', $options = array()) {
-
-		// check if we need a picture ~ we won't check certs for that
-		if(preg_match('/\/picture$/', $request)) {
-			self::$CURL_OPTS = array_merge_keys(self::$CURL_OPTS, array(
-				CURLOPT_BINARYTRANSFER => true,
-				CURLOPT_SSL_VERIFYPEER => false
-			));
-		}
-
-		$defaults = array(
-			'access_token' => $this->_readSession('access_token'),
-			'metadata' => false,
-			//'limit' => null,
-			//'offset' => null,
-			//'until' => null,
-			//'since' => null,
-		);
-		$url = $this->getUrl('graph', $request, array_merge($defaults, $options)); debug($url);
-		$response = static::request($url);
-		debug($response); exit;
-
-		return $response;
 
 	}
 
@@ -211,10 +191,15 @@ class Facebook extends \lithium\data\source\Http {
 	 * @param $options Array optional query parameters
 	 * @return Mixed the Response received
 	 */
-	protected function _request($url, $options = array()) {
+	protected function _request($path, $options = array()) {
 
+		// Cache external requests
+		$cacheKey = Inflector::slug(sha1($path)) . '-' . sha1($this->_readSession('access_token'));
+		if(false && $this->_config['cache'] && ($response = Cache::read($this->_config['cache'], $cacheKey)) !== false) {
+			return $response;
+		}
 		//$response = self::curlGet($url, $options);
-		$response = $this->connection->get($url);
+		$response = $this->connection->get($path);
 
 		if(!empty($response[0]) && $response[0] == '{') $result = json_decode($response, true);
 		$response = !empty($result) ? $result : $response;
@@ -224,6 +209,8 @@ class Facebook extends \lithium\data\source\Http {
 			trigger_error($response['error']['type'] . ': ' . $response['error']['message'] . ' ~ ' . $url, E_USER_WARNING);
 			return false;
 		}
+
+		if($this->_config['cache']) Cache::write($this->_config['cache'], $cacheKey, $response);
 
 		return $response;
 	}
