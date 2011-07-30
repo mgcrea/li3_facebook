@@ -11,6 +11,7 @@ namespace facebook\extensions\adapter\security\auth;
 use lithium\security\Auth;
 use lithium\security\validation\RequestToken;
 use lithium\storage\Session;
+use lithium\net\http\Router;
 
 /**
  * The `Facebook` adapter provides basic and digest authentication based on the Facebook API.
@@ -65,7 +66,7 @@ class Facebook extends \lithium\core\Object {
 
 		$defaults = array(
 			'realm' => basename(LITHIUM_APP_PATH),
-			'redirect_uri' => 'http://sandbox-lithium.local/login', //$this->_getCurrentUrl(),
+			'redirect_uri' => $this->_getCurrentUrl(),
 			'certificate' => null,
 			'scope' => array(),
 			'display' => null,
@@ -98,7 +99,7 @@ class Facebook extends \lithium\core\Object {
 	 *              adapter.
 	 * @return array Returns an array containing user information on success, or `false` on failure.
 	 */
-	public function check($request, array $options = array()) {
+	public function check($request, array $options = array()) { //debug($request->base()); exit;
 
 		// check for any session code post from facebook
 		if(!empty($request->query['code'])) { debug($request->query);
@@ -256,7 +257,7 @@ class Facebook extends \lithium\core\Object {
 	protected function _getCurrentUrl() {
 		$protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on' ? 'https://' : 'http://';
 		//debug(Router::match()); exit;
-		return $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+		return $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REDIRECT_URL'];
 	}
 
 	/**

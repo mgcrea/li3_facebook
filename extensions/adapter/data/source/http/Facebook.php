@@ -42,10 +42,11 @@ class Facebook extends \lithium\data\source\Http {
 	 * Facebook API Paths
 	 */
 	public static $paths = array(
-		'users' => array(
+		'friends' => array(
 			'domain' => 'graph',
 			'defaults' => array('id' => 'me/friends')
-		)
+		),
+		'users' => 'friends'
 	);
 
 	/**
@@ -70,7 +71,7 @@ class Facebook extends \lithium\data\source\Http {
 			'cache' => 'facebook',
 			'connection' => 'facebook',
 			'certificate' => null,
-			'socket' => 'Curl'
+			'socket' => 'Context'//'Curl'
 		);
 
 		parent::__construct($config += $defaults);
@@ -103,7 +104,10 @@ class Facebook extends \lithium\data\source\Http {
 		$source = !empty($options['source']) ? $options['source'] : $params['source'];
 
 		// make sure the resource we're attempting to read from is one we know about in our map
-		if(!isset(self::$paths[$source])) return null;
+		if(!isset(self::$paths[$source])) {
+			trigger_error('No map available for ressource `' . $source . '`', E_USER_WARNING);
+			return null;
+		}
 		// support source redirections
 		if(is_string(self::$paths[$source])) $source = self::$paths[$source];
 		// override default configuration based on domain
@@ -123,8 +127,8 @@ class Facebook extends \lithium\data\source\Http {
 		$conditions += array(
 			'access_token' => $this->_readSession('access_token'),
 			'metadata' => false,
-			'limit' => $options['limit'],
-			'offset' => $options['offset'],
+			'limit' => !empty($options['limit']) ? $options['limit'] : null,
+			'offset' => !empty($options['offset']) ? $options['offset'] : null,
 			//'until' => null,
 			//'since' => null,
 		);
@@ -133,20 +137,21 @@ class Facebook extends \lithium\data\source\Http {
 		$request = $conditions['id'];
 		unset($conditions['id']);
 
-		//$this->connection->_config['options'] = array('a' => 1);
-
-		debug(compact('request', 'conditions', 'source', 'url'));
-
 		// craft the URL to the API using the conditions from the query
 		$url = static::craftPath($request, $conditions);
 		// get request response
-		//debug);
-		$response = $this->_request($url);
-		debug($response); exit;
+		$ressource = $this->_request($url);
+		//debug(compact('request', 'conditions', 'source', 'url', 'ressource'));
 
-		$data[$source] = $ressource['results'];
-		return $this->item($query->model(), $data[$source], array('class' => 'set'));
-
+		// deal with multiple returns
+		if(!empty($ressource['data'])) {
+			return $this->item($query->model(), $ressource['data'], array('class' => 'set'));
+		// or single ones
+		} else {
+			//debug($query->model());
+			return $this->item($query->model(), array($ressource), array('class' => 'entity'));
+			//return $this->item($query->model(), array($ressource), array('class' => 'entity'));
+		}
 
 	}
 
@@ -200,13 +205,14 @@ class Facebook extends \lithium\data\source\Http {
 		}
 		//$response = self::curlGet($url, $options);
 		$response = $this->connection->get($path);
+		//debug(compact('path', 'response'));
 
 		if(!empty($response[0]) && $response[0] == '{') $result = json_decode($response, true);
 		$response = !empty($result) ? $result : $response;
 
 		// results are returned, errors are thrown
 		if (is_array($response) && !empty($response['error'])) {
-			trigger_error($response['error']['type'] . ': ' . $response['error']['message'] . ' ~ ' . $url, E_USER_WARNING);
+			trigger_error($response['error']['type'] . ': ' . $response['error']['message'] . ' ~ ' . $path, E_USER_WARNING);
 			return false;
 		}
 
