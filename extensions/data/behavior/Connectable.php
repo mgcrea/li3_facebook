@@ -2,6 +2,9 @@
 
 namespace facebook\extensions\data\behavior;
 
+use facebook\models\Friends as FacebookFriends;
+use facebook\extensions\adapter\data\source\http\Facebook;
+
 class Connectable extends \lithium\core\StaticObject {
 
     /**
@@ -15,23 +18,24 @@ class Connectable extends \lithium\core\StaticObject {
 	/**
 	 * sync
 	 */
-	public static function syncFacebookFriends($model, array &$data = array(), array $config = array()) {
-		debug(compact('model', 'data', 'config')); exit;
+	public static function syncFacebookFriends($model, $me, array $options = array()) {
+		//debug(compact('class', 'model', 'data', 'config')); exit;
 
-		// check friends
-		$allFriends = array_shift($Model->Facebook->graph('me/friends', array('offset' => 0)));
+		// Retrieve all friends
+		$allFriends = FacebookFriends::all(array('limit' => 5, 'offset' => 0));
+
 		$allFriendsIds = array();
-
 		foreach($allFriends as $friend) {
-			$user = $Model->find('first', array('conditions' => array('facebook_id' => $friend['id'])));
+			$user = $model::find('first', array('conditions' => array('facebook.id' => $friend['id'])));
 			if(!$user) {
-				$Model->create();
-				$user = $Model->save(array('User' => $friend), array('type' => "facebook"));
+				$user = $model::create($friend);
+				$success = $user->save(null, array('source' => 'facebook'));
 			}
-			$allFriendsIds[] = $user[$Model->alias]['_id'];
+			$allFriendsIds[] = $user->_id->{'$id'};
 		}
 
-		$Model->save(array($Model->alias => array('_id' => $data[$Model->alias]['_id'], 'friends' => $allFriendsIds)), array('type' => "facebook"));
+		$me->set(array('friends' => $allFriendsIds));
+		return $success = $me->save();
 
 	}
 
@@ -44,34 +48,46 @@ class Connectable extends \lithium\core\StaticObject {
     public static function bind($model, array $config = array()) {
 
 		$defaults = array(
-			'debug' => true
+			//'debug' => true
 		);
 		$config += $defaults;
 
-		debug(static::_object()); exit;
+		$model::applyFilter('save', function($self, $params, $chain) use ($model) {
 
-		//$model::syncFacebookFriends = function()  { debug('GOOD'); };
+			if(!empty($params['options']['source']) && $params['options']['source'] == 'facebook') {
 
-		$model::applyFilter('syncFacebookFriends', function($self, $params, $chain) use ($model) {
-			debug('IN!'); exit;
+				// Append picture url
+				$pictureUrl = Facebook::$domains['graph']['scheme'] . '://' . Facebook::$domains['graph']['host'] . '/' . $params['entity']->id . '/picture';
+				$params['entity']->set(array('picture' => $pictureUrl));
+
+				// Wrap data into a array
+				$data = $params['entity']->data();
+				foreach($data as $k => $v) {
+					 unset($params['entity']->{$k});
+				}
+				$params['entity']->set(array('facebook' => $data));
+				// This is breaking everything up !!!!
+				//$params['entity'] = $model::create(array('facebook' => $params['entity']->data()));
+
+				// Extract fields
+				// @todo add in method
+				if(!empty($params['entity']->facebook['name'])) $params['entity']->set(array('name' => $params['entity']->facebook['name']));
+				if(!empty($params['entity']->facebook['email'])) $params['entity']->set(array('email' => $params['entity']->facebook['email']));
+			}
+
+			// Always make sure to keep the filter chain going.
+			$response = $chain->next($self, $params, $chain);
+
+			//debug($params['entity']);
+			//debug($response);
+			//debug($params['entity']->_id); exit;
+
+			return $response;
+
 		});
 
-		$model::applyFilter('_call', function($self, $params, $chain) use ($model) {
-			debug('_call'); exit;
-			/*$params = Dateable::invokeMethod('_formatUpdated', array(
-				$class, $params
-			));*/
-			return $chain->next($self, $params, $chain);
-		});
     }
 
-	public function __call($name, $arguments) {
-        debug(func_get_args());
-    }
-
-	public static function __callStatic($name, $arguments) {
-		debug(func_get_args());
-	}
 }
 
 ?>

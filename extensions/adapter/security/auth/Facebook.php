@@ -102,12 +102,13 @@ class Facebook extends \lithium\core\Object {
 	public function check($request, array $options = array()) { //debug($request->base()); exit;
 
 		// check for any session code post from facebook
-		if(!empty($request->query['code'])) { debug($request->query);
+		if(!empty($request->query['code'])) {
 			if (!RequestToken::check($request->query['state'], array('sessionKey' => 'security.facebook.state'))) {
 				trigger_error("The state does not match. You may be a victim of CSRF.");
 				// trigger Auth clear
 				Auth::clear($this->_config['session']['key']);
 				exit;
+				//return $this->_redirect('/');
 			}
 			$this->_writeSession('code', $request->query['code']);
 		}
@@ -175,6 +176,10 @@ class Facebook extends \lithium\core\Object {
 			$this->_writeSession('access_token', $response['access_token']);
 			$this->_writeSession('access_token_time', time() - 5);
 			if(!empty($response['expires'])) $this->_writeSession('access_token_expires', $response['expires']);
+
+			// get logged user
+			$meUrl = $this->_getUrl('graph', 'me', array('access_token' => $this->_readSession('access_token')));
+			$this->_writeSession('me', $this->_request($meUrl));
 
 			return true;
 		}
@@ -257,17 +262,27 @@ class Facebook extends \lithium\core\Object {
 	protected function _getCurrentUrl() {
 		$protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on' ? 'https://' : 'http://';
 		//debug(Router::match()); exit;
-		return $protocol . $_SERVER['HTTP_HOST'] . $_SERVER['REDIRECT_URL'];
+		return $protocol . $_SERVER['HTTP_HOST'] . (!empty($_SERVER['REDIRECT_URL']) ? $_SERVER['REDIRECT_URL'] : '/');
 	}
 
 	/**
 	 * Helper method for reading in the Session
 	 *
 	 * @param string $key
-	 * @return void
+	 * @return mixed
 	 */
 	protected function _readSession($key = null) {
 		return Session::read('security.'.$this->_config['session']['key'] . ($key ? '.' . $key : null));
+	}
+
+	/**
+	 * Public helper method for reading in the Session
+	 *
+	 * @param string $key
+	 * @return mixed
+	 */
+	public function get($key = null) {
+		return $this->_readSession($key);
 	}
 
 	/**
