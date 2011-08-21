@@ -26,7 +26,7 @@ class Facebook extends \lithium\data\source\Http {
 	);
 
 	/**
-	 * Store related Auth object
+	 * Store related Auth session data
 	 */
 	protected $_auth = null;
 
@@ -74,7 +74,7 @@ class Facebook extends \lithium\data\source\Http {
 			'scheme' => null,
 			'host' => null,
 			'port' => null,
-			'cache' => 'facebook',
+			'cache' => false,//'facebook',
 			'connection' => 'facebook',
 			'certificate' => null,
 			'socket' => 'Context'//'Curl'
@@ -86,22 +86,24 @@ class Facebook extends \lithium\data\source\Http {
 	public function _init() {
 		parent::_init();
 
-		// reference related Auth for later use
+		// retrieve Auth session
 		$authConfig = Auth::config($this->_config['auth']);
-		$this->_auth = $authConfig['object'];
+		$this->_auth = Session::read($authConfig['session']['key']);
 
 		// use bundled certificate
 		if(!$this->_config['certificate']) $this->_config['certificate'] = dirname(__FILE__) . DS . '..' . DS . '..' . DS . '..' . DS . '..' . DS . '..' . DS . 'libraries' . DS . 'php-sdk' . DS . 'src' . DS . 'fb_ca_chain_bundle.crt';
 		self::$curlOptions[CURLOPT_CAINFO] = $this->_config['certificate'];
 
-		$cachePath = LITHIUM_CACHE_PATH . DS . $this->_config['cache'];
-		if(!is_dir($cachePath)) mkdir($cachePath, 0770, true);
-		Cache::config(array($this->_config['cache'] => array(
-			'adapter' => 'File',
-			'strategies' => array('Json'),
-			'path' => $cachePath,
-			'expiry' => '+1 year'
-		)));
+		if($this->_config['cache']) {
+			$cachePath = LITHIUM_CACHE_PATH . DS . $this->_config['cache'];
+			if(!is_dir($cachePath)) mkdir($cachePath, 0770, true);
+			Cache::config(array($this->_config['cache'] => array(
+				'adapter' => 'File',
+				'strategies' => array('Json'),
+				'path' => $cachePath,
+				'expiry' => '+1 year'
+			)));
+		}
 	}
 
 	public function read($query, array $options = array()) { //debug(compact('options')); debug($this); debug($this->_config); exit;
@@ -133,7 +135,7 @@ class Facebook extends \lithium\data\source\Http {
 		if(!empty(self::$paths[$source]['defaults'])) $conditions = (array)$params['conditions'] + self::$paths[$source]['defaults'];
 
 		$conditions += array(
-			'access_token' => $this->_auth->get('access_token'), // retrieve acces_token from Auth adapter
+			'access_token' => $this->_auth['access_token'], // retrieve acces_token from Auth adapter
 			'metadata' => false,
 			'limit' => !empty($options['limit']) ? $options['limit'] : null,
 			'offset' => !empty($options['offset']) ? $options['offset'] : null,
@@ -164,27 +166,6 @@ class Facebook extends \lithium\data\source\Http {
 	}
 
 	/**
-	 * Helper method for reading in the Session
-	 *
-	 * @param string $key
-	 * @return void
-	 */
-	protected function _readSession($key = null) {
-		return Session::read('data.' . $this->_config['auth'] . ($key ? '.' . $key : null));
-	}
-
-	/**
-	 * Helper method for writing in the Session
-	 *
-	 * @param string $key
-	 * @param mixed $value
-	 * @return void
-	 */
-	protected function _writeSession($key = null, $value = null) {
-		return Session::write('data.' . $this->_config['auth'] . ($key ? '.' . $key : null), $value);
-	}
-
-	/**
 	 * Craft the URL for given domain alias, path and parameters.
 	 *
 	 * @param $name String the name of the domain
@@ -208,7 +189,7 @@ class Facebook extends \lithium\data\source\Http {
 
 		// Cache external requests
 		// @todo can use access_token for fb session lifetime cache
-		$cacheKey = $this->_auth->get('me.id') . '-' . sha1($path);
+		$cacheKey = $this->_auth['me']['id'] . '-' . sha1($path);
 		//Cache::delete($this->_config['cache'], $cacheKey);
 		if($this->_config['cache'] && ($response = Cache::read($this->_config['cache'], $cacheKey)) !== null) {
 			return $response;

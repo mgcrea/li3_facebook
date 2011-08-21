@@ -85,6 +85,7 @@ class Facebook extends \lithium\core\Object {
 		if(!$this->_config['certificate']) $this->_config['certificate'] = dirname(__FILE__) . DS . '..' . DS . '..' . DS . '..' . DS . '..' . DS . 'libraries' . DS . 'php-sdk' . DS . 'src' . DS . 'fb_ca_chain_bundle.crt';
 		self::$curlOptions[CURLOPT_CAINFO] = $this->_config['certificate'];
 
+		Session::config(array('facebook' => array('adapter' => 'Php')));
 	}
 
 	/**
@@ -100,6 +101,9 @@ class Facebook extends \lithium\core\Object {
 	 * @return array Returns an array containing user information on success, or `false` on failure.
 	 */
 	public function check($request, array $options = array()) { //debug($request->base()); exit;
+
+		$defaults = array('login' => true);
+		$options += $defaults;
 
 		// check for any session code post from facebook
 		if(!empty($request->query['code'])) {
@@ -124,13 +128,18 @@ class Facebook extends \lithium\core\Object {
 			}
 		}
 
-		// generate random state to protect from crsf
-		$state = RequestToken::key(array('regenerate' => true, 'sessionKey' => 'security.facebook.state')); //md5(uniqid(rand(), true));
+		if(!empty($options['login'])) {
+			// generate random state to protect from crsf
+			$state = RequestToken::key(array('regenerate' => true, 'sessionKey' => 'security.facebook.state')); //md5(uniqid(rand(), true));
 
-		// let's login to retreive a code from facebook
-		$url = $this->_getLoginUrl(compact('state'));
-		$this->_redirect($url);
+			// let's login to retreive a code from facebook
+			$url = $this->_getLoginUrl(compact('state')); //debug($url); exit;
+			$this->_redirect($request, $url);
+		}
+
+		return false;
 	}
+
 
 	/**
 	 * A pass-through method called by `Auth`. Returns the value of `$data`, which is written to
@@ -143,6 +152,16 @@ class Facebook extends \lithium\core\Object {
 	 */
 	public function set($data, array $options = array()) {
 		return $data;
+	}
+
+	/**
+	 * Public helper method for reading in the Session
+	 *
+	 * @param string $key
+	 * @return mixed
+	 */
+	public function get($key = null) {
+		return $this->_readSession($key);
 	}
 
 	/**
@@ -172,10 +191,14 @@ class Facebook extends \lithium\core\Object {
 		parse_str($response, $response);
 
 		if(!empty($response['access_token'])) {
+
+			// Let's try to push expiration to the session.cookie_lifetime
+			Session::config(array('facebook' => array('adapter' => 'Php', 'session.cookie_lifetime' => $response['expires'] - 10)));
+
 			// update session
 			$this->_writeSession('access_token', $response['access_token']);
+			$this->_writeSession('access_token_expires', $response['expires']);
 			$this->_writeSession('access_token_time', time() - 5);
-			if(!empty($response['expires'])) $this->_writeSession('access_token_expires', $response['expires']);
 
 			// get logged user
 			$meUrl = $this->_getUrl('graph', 'me', array('access_token' => $this->_readSession('access_token')));
@@ -272,17 +295,7 @@ class Facebook extends \lithium\core\Object {
 	 * @return mixed
 	 */
 	protected function _readSession($key = null) {
-		return Session::read('security.'.$this->_config['session']['key'] . ($key ? '.' . $key : null));
-	}
-
-	/**
-	 * Public helper method for reading in the Session
-	 *
-	 * @param string $key
-	 * @return mixed
-	 */
-	public function get($key = null) {
-		return $this->_readSession($key);
+		return Session::read('security.'.$this->_config['session']['key'] . ($key ? '.' . $key : null), array('name' => 'facebook'));
 	}
 
 	/**
@@ -293,7 +306,7 @@ class Facebook extends \lithium\core\Object {
 	 * @return void
 	 */
 	protected function _writeSession($key = null, $value = null) {
-		return Session::write('security.'.$this->_config['session']['key'] . ($key ? '.' . $key : null), $value);
+		return Session::write('security.'.$this->_config['session']['key'] . ($key ? '.' . $key : null), $value, array('name' => 'facebook'));
 	}
 
 	/**
@@ -302,9 +315,10 @@ class Facebook extends \lithium\core\Object {
 	 * @param string $url the redirection url
 	 * @return void
 	 */
-	protected function _redirect($url) {
-		 $this->_writeHeader('Location: ' . $url);
-		 exit;
+	protected function _redirect($request, $url) {
+		if($request->is('ajax')) echo json_encode(array('location' => $url));
+		else $this->_writeHeader('Location: ' . $url);
+		exit;
 	}
 
 	/**

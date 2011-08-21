@@ -22,7 +22,7 @@ class Connectable extends \lithium\core\StaticObject {
 		//debug(compact('class', 'model', 'data', 'config')); exit;
 
 		// Retrieve all friends
-		$allFriends = FacebookFriends::all(array('limit' => 5, 'offset' => 0));
+		$allFriends = FacebookFriends::all(array('limit' => 0, 'offset' => 0));
 
 		$allFriendsIds = array();
 		foreach($allFriends as $friend) {
